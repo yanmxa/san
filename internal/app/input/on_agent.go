@@ -316,9 +316,9 @@ func (s *AgentSelector) Render() string {
 
 func (s *AgentSelector) renderTabs() string {
 	tabs := []kit.PanelTab{
-		{Name: agentTabBuiltin.String(), Count: s.tabCount(agentTabBuiltin), Show: true, Disable: s.tabCount(agentTabBuiltin) == 0},
-		{Name: agentTabProject.String(), Count: s.tabCount(agentTabProject), Show: true},
-		{Name: agentTabUser.String(), Count: s.tabCount(agentTabUser), Show: true},
+		{Name: agentTabBuiltin.String(), Count: s.tabCount(agentTabBuiltin), ShowCount: true, Show: true, Disable: s.tabCount(agentTabBuiltin) == 0},
+		{Name: agentTabProject.String(), Count: s.tabCount(agentTabProject), ShowCount: true, Show: true},
+		{Name: agentTabUser.String(), Count: s.tabCount(agentTabUser), ShowCount: true, Show: true},
 	}
 	return kit.RenderPanelTabs(tabs, int(s.activeTab))
 }

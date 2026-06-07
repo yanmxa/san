@@ -67,10 +67,11 @@ func (p Panel) Wrap(content string) string {
 
 // PanelTab is one entry in the panel's tab header.
 type PanelTab struct {
-	Name    string
-	Count   int  // shown in parentheses; omitted when ShowCount is false
-	Show    bool // when false the tab is hidden
-	Disable bool // dim/grey the tab and skip it in navigation
+	Name      string
+	Count     int  // appended after the name; rendered only when ShowCount is true
+	ShowCount bool // when false the tab shows just its name (no count)
+	Show      bool // when false the tab is hidden
+	Disable   bool // dim/grey the tab and skip it in navigation
 }
 
 // RenderPanelTabs renders a row of tab pills with the given active index.
@@ -94,7 +95,10 @@ func RenderPanelTabs(tabs []PanelTab, active int) string {
 		if !t.Show {
 			continue
 		}
-		label := fmt.Sprintf("%s %d", t.Name, t.Count)
+		label := t.Name
+		if t.ShowCount {
+			label = fmt.Sprintf("%s %d", t.Name, t.Count)
+		}
 		switch {
 		case t.Disable:
 			parts = append(parts, disabledStyle.Render(label))

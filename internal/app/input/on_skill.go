@@ -356,8 +356,8 @@ func (s *SkillSelector) Render() string {
 
 func (s *SkillSelector) renderTabs() string {
 	tabs := []kit.PanelTab{
-		{Name: skillTabProject.String(), Count: s.tabCount(skillTabProject), Show: true},
-		{Name: skillTabUser.String(), Count: s.tabCount(skillTabUser), Show: true},
+		{Name: skillTabProject.String(), Count: s.tabCount(skillTabProject), ShowCount: true, Show: true},
+		{Name: skillTabUser.String(), Count: s.tabCount(skillTabUser), ShowCount: true, Show: true},
 	}
 	return kit.RenderPanelTabs(tabs, int(s.activeTab))
 }
