@@ -116,6 +116,13 @@ type ChatMessage struct {
 	// tool call. Display-only: dropped by ToMessage, never persisted.
 	Decision *ReviewDecision
 
+	// AutopilotStep, when > 0, marks a user message the copilot auto-submitted as
+	// the Nth of AutopilotMax turn-end continuations. The renderer draws a green
+	// "↓ autopilot · N/M" header hugging the "❭" line to show the copilot typed
+	// it. Display-only: dropped by ToMessage, never persisted.
+	AutopilotStep int
+	AutopilotMax  int
+
 	// Streaming-commit progress. While an assistant message streams, completed
 	// markdown blocks are flushed to native scrollback (tea.Println) as they
 	// finish, so the live view and the turn-end commit render only the

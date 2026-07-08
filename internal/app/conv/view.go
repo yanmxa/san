@@ -156,7 +156,11 @@ func RenderMessageAt(p RenderContext, idx int, isStreaming bool) string {
 	msg := p.Messages[idx]
 	var sb strings.Builder
 
-	if msg.ToolResult == nil {
+	// A copilot continuation hugs the turn it continues: no blank line above, and
+	// a "↓ autopilot · N/M" header pointing down at its "❭" line.
+	autopilotDriven := msg.Role == core.RoleUser && msg.ToolResult == nil && msg.AutopilotStep > 0
+
+	if msg.ToolResult == nil && !autopilotDriven {
 		sb.WriteString("\n")
 	}
 
@@ -177,6 +181,9 @@ func RenderMessageAt(p RenderContext, idx int, isStreaming bool) string {
 			// system notice — not a "❭" user turn — so the transcript stays clean.
 			sb.WriteString(RenderSystemMessage(msg.DisplayContent))
 		default:
+			if autopilotDriven {
+				sb.WriteString(RenderAutopilotStep(msg.AutopilotStep, msg.AutopilotMax))
+			}
 			sb.WriteString(RenderUserMessage(msg.Content, msg.DisplayContent, msg.Images, p.MDRenderer, p.Width))
 		}
 	case core.RoleNotice:

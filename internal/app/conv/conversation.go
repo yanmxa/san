@@ -63,6 +63,19 @@ func (m *ConversationModel) SetLastNotice(content string) bool {
 	return true
 }
 
+// DropLastNotice removes the trailing notice when it's still in the live tail
+// (not yet flushed to scrollback), returning true. Used to retract a transient
+// "…thinking" notice once its outcome is shown elsewhere — e.g. the copilot's
+// continuation header rides the submitted turn instead.
+func (m *ConversationModel) DropLastNotice() bool {
+	idx := len(m.Messages) - 1
+	if idx < 0 || idx < m.CommittedCount || m.Messages[idx].Role != core.RoleNotice {
+		return false
+	}
+	m.Messages = m.Messages[:idx]
+	return true
+}
+
 func (m *ConversationModel) AppendToLast(text, thinking string) {
 	if len(m.Messages) == 0 {
 		return

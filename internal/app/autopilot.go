@@ -253,8 +253,9 @@ func (m *model) handleAutopilotDecision(msg autopilotDecisionMsg) tea.Cmd {
 	if msg.err == nil && msg.cont && msg.instruction != "" {
 		m.autopilotContinuations++
 		m.autopilotContinuing = true
-		m.settleAutopilotHint(fmt.Sprintf("continuing (%d/%d)",
-			m.autopilotContinuations, m.env.AutoPilot.ResolvedMaxContinuations()))
+		// Retract the transient "thinking…" notice; the "↓ autopilot · N/M"
+		// header rides the submitted turn (dispatchSubmission tags it) instead.
+		m.conv.DropLastNotice()
 		m.userInput.Textarea.SetValue(msg.instruction) // visible: the copilot "types" it, then it reads back as the submitted message
 		return m.handleSubmit()
 	}

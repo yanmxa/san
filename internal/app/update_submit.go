@@ -80,8 +80,11 @@ func (m *model) dispatchSubmission(raw string) tea.Cmd {
 
 	// A human turn resets the auto-continue budget; a copilot-driven continuation
 	// (flagged) does not, so MaxContinuations bounds a run of consecutive
-	// auto-turns rather than the whole session.
+	// auto-turns rather than the whole session. Capture the step now, before the
+	// reset, so the built message can wear the "↓ autopilot · N/M" header.
+	autopilotStep := 0
 	if m.autopilotContinuing {
+		autopilotStep = m.autopilotContinuations
 		m.autopilotContinuing = false
 	} else {
 		m.autopilotContinuations = 0
@@ -107,6 +110,10 @@ func (m *model) dispatchSubmission(raw string) tea.Cmd {
 	// can't accept, rather than letting the provider reject the request.
 	if m.imagesBlockedForModel(msg.Images) {
 		return tea.Batch(m.CommitMessages()...)
+	}
+	if autopilotStep > 0 {
+		msg.AutopilotStep = autopilotStep
+		msg.AutopilotMax = m.env.AutoPilot.ResolvedMaxContinuations()
 	}
 	m.conv.Append(msg)
 	m.userInput.Reset()
