@@ -2,11 +2,12 @@
 
 ## Overview
 
-Autopilot is San's configurable **copilot**: a second driver that steers the
-session at fixed points — proposing or rewriting input, approving gray-zone
-tool calls, answering a command's interactive prompts, answering
-`AskUserQuestion` on your behalf, and auto-continuing finished turns toward a
-mission. Each of those points is a **steer** you toggle independently; only the
+Autopilot is San's autonomy system, designed to minimize human intervention: a
+copilot model cruises the session, keeping routine work moving and handing
+control back only when something genuinely needs you. It acts through a set of
+independently enabled **steers** — proposing or rewriting input, approving
+gray-zone tool calls, answering a command's interactive prompts, answering
+`AskUserQuestion`, and continuing finished turns toward a mission. Only
 gray-zone permission judging is on by default.
 
 Enter AutoPilot mode with `shift+tab` (cycle until the amber
