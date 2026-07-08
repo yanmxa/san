@@ -41,6 +41,60 @@ it: the mission is cleared and the steers reset to the passive baseline
 (Permission + Bash) — AutoPilot stays on, you take the wheel back with the
 auto-approve safety net intact.
 
+## Demo: a hands-free scaffold
+
+A two-minute run that exercises the full loop — mission kick-off, gray-zone
+approval, auto-continuation, and completion — without touching anything outside
+a scratch directory.
+
+**1. Start San in an empty directory:**
+
+```bash
+mkdir /tmp/autopilot-demo && cd /tmp/autopilot-demo && san
+```
+
+**2. Configure the copilot** — run `/autopilot`:
+
+- Toggle **Start** and **End** on (Permission is already on).
+- Open **Mission** and brief it:
+
+  > Scaffold a `notes/` directory: `todo.md` with a 3-item checklist, `done.md`
+  > empty, and `README.md` explaining the layout. Work one file per turn. When
+  > all three exist, verify with `ls notes/` — then the mission is complete.
+
+- `esc` back, then **Save**.
+
+**3. Engage** — press `shift+tab` until the mode line shows
+`⏵⏵ autopilot on`. That's the last key you need to press: with Start on, a
+mission set, and an empty composer, the copilot derives the opening step and
+submits it itself.
+
+**4. Watch the run.** Expect a transcript like:
+
+```
+❭ Create notes/todo.md with a 3-item checklist.
+  ↖ autopilot · 1/20
+● Write(notes/todo.md)
+  ⎿  Write → 5 lines
+❭ Create an empty notes/done.md.
+  ↖ autopilot · 2/20
+...
+● Bash(ls notes/)
+  ↳ auto-approved · read-only directory listing
+  ⎿  Bash → 3 lines
+  ✓ autopilot · mission complete
+```
+
+Every `❭` in the run carries the green `↖ autopilot` mark — the copilot typed
+them all, opening step included; you never touched the composer. The `ls` is a
+gray-zone call the Permission steer approved inline. On `✓ mission complete` the mission is cleared and the steers drop back
+to the passive baseline — open `/autopilot` to confirm — while AutoPilot stays
+engaged.
+
+To see the gentler end of the spectrum, rerun with only **Suggest** on: the
+copilot proposes each step as ghost text in the composer and you accept with
+`tab` + `enter`.
+
 ## Reading the transcript
 
 | Mark | Meaning |

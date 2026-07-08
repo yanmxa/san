@@ -36,6 +36,57 @@ Start、Question、End)读它;安全类 steer(Permission、Bash)刻意对它不�
 到被动基线(Permission + Bash)—— AutoPilot 保持开启,你重新接手,自动放行的
 安全网仍在。
 
+## Demo:一次免人工的脚手架搭建
+
+两分钟跑通完整闭环 —— mission 起步、灰区放行、自动续跑、任务完成 ——
+全程不触碰临时目录以外的任何东西。
+
+**1. 在空目录启动 San:**
+
+```bash
+mkdir /tmp/autopilot-demo && cd /tmp/autopilot-demo && san
+```
+
+**2. 配置 copilot** —— 运行 `/autopilot`:
+
+- 打开 **Start** 和 **End**(Permission 默认已开)。
+- 打开 **Mission**,交代任务:
+
+  > 搭建一个 `notes/` 目录:`todo.md` 放一个 3 项的清单、`done.md` 留空、
+  > `README.md` 说明目录结构。每回合处理一个文件。三个文件齐了之后用
+  > `ls notes/` 验证 —— 然后任务即完成。
+
+- `esc` 返回,然后 **Save**。
+
+**3. 启动巡航** —— 按 `shift+tab` 直到模式行显示 `⏵⏵ autopilot on`。
+这是你需要按的最后一个键:Start 开启、mission 已设、输入框为空时,
+copilot 会自己推出第一步并提交。
+
+**4. 观察运行。** 预期的转录大致是:
+
+```
+❭ Create notes/todo.md with a 3-item checklist.
+  ↖ autopilot · 1/20
+● Write(notes/todo.md)
+  ⎿  Write → 5 lines
+❭ Create an empty notes/done.md.
+  ↖ autopilot · 2/20
+...
+● Bash(ls notes/)
+  ↳ auto-approved · read-only directory listing
+  ⎿  Bash → 3 lines
+  ✓ autopilot · mission complete
+```
+
+整个运行里的每个 `❭` 都带绿色 `↖ autopilot` 标记 —— 包括开场那条,全部由
+copilot 敲入,你没有碰过输入框。那条 `ls` 是灰区调用,由 Permission steer
+就地放行。出现
+`✓ mission complete` 时,mission 被清空、steer 归位到被动基线(打开
+`/autopilot` 可确认),而 AutoPilot 保持开启。
+
+想体验最轻的一档,只开 **Suggest** 重跑一遍:copilot 把每一步以幽灵文本
+提议在输入框里,你用 `tab` + `enter` 接受发送。
+
 ## 读懂转录里的标记
 
 | 标记 | 含义 |
