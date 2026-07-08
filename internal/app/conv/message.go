@@ -121,11 +121,12 @@ var (
 				Bold(true)
 )
 
-// RenderAutopilotStep is the one-line "↓ autopilot · N/M" header the copilot's
-// auto-submitted turn wears, drawn tight above its "❭" line so the arrow points
-// straight at the instruction the copilot typed.
+// RenderAutopilotStep is the "↖ autopilot · N/M" annotation the copilot's
+// auto-submitted turn wears, drawn tight below its "❭" line — the up-left arrow
+// points back at the instruction to say the copilot, not the human, typed it
+// (mirroring how a permission decision hangs under the call it judged).
 func RenderAutopilotStep(step, max int) string {
-	return autopilotStepStyle.Render("↓ autopilot") +
+	return autopilotStepStyle.Render("  ↖ autopilot") +
 		toolResultStyle.Render(fmt.Sprintf(" · %d/%d", step, max)) + "\n"
 }
 

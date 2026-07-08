@@ -104,14 +104,19 @@ func autopilotHint(detail string) string {
 	return autopilotHintMark.Render("⏵ autopilot") + autopilotHintDim.Render(" · "+detail)
 }
 
-// settleAutopilotHint resolves the pending "thinking…" notice into its outcome
-// on the same line — falling back to a fresh notice if that line already
-// flushed to scrollback — so the copilot's deliberation and its decision read
-// as one line instead of two.
-func (m *model) settleAutopilotHint(detail string) {
-	hint := autopilotHint(detail)
-	if !m.conv.SetLastNotice(hint) {
-		m.conv.AddNotice(hint)
+// autopilotHandback is the notice shown when the copilot returns control to the
+// human — it stops mid-mission (needs a decision, or spent its continuation
+// budget), so the arrow curves back to the user rather than driving forward.
+func autopilotHandback() string {
+	return autopilotHintMark.Render("↩ autopilot") + autopilotHintDim.Render(" · over to you")
+}
+
+// settleAutopilotNotice resolves the pending "thinking…" notice into rendered on
+// the same line — falling back to a fresh notice if that line already flushed to
+// scrollback — so the copilot's deliberation and its outcome read as one line.
+func (m *model) settleAutopilotNotice(rendered string) {
+	if !m.conv.SetLastNotice(rendered) {
+		m.conv.AddNotice(rendered)
 	}
 }
 
@@ -205,7 +210,7 @@ func (m *model) autopilotContinueCmd(result core.Result) tea.Cmd {
 		return nil
 	}
 	if m.autopilotContinuations >= ar.ResolvedMaxContinuations() {
-		m.conv.AddNotice(autopilotHint(fmt.Sprintf("budget reached (%d) · handing back", ar.ResolvedMaxContinuations())))
+		m.conv.AddNotice(autopilotHandback()) // spent the budget; the ↖ N/N above says why
 		return nil
 	}
 	mission := strings.TrimSpace(ar.Mission)
@@ -253,13 +258,13 @@ func (m *model) handleAutopilotDecision(msg autopilotDecisionMsg) tea.Cmd {
 	if msg.err == nil && msg.cont && msg.instruction != "" {
 		m.autopilotContinuations++
 		m.autopilotContinuing = true
-		// Retract the transient "thinking…" notice; the "↓ autopilot · N/M"
-		// header rides the submitted turn (dispatchSubmission tags it) instead.
+		// Retract the transient "thinking…" notice; the "↖ autopilot · N/M"
+		// annotation rides the submitted turn (dispatchSubmission tags it) instead.
 		m.conv.DropLastNotice()
 		m.userInput.Textarea.SetValue(msg.instruction) // visible: the copilot "types" it, then it reads back as the submitted message
 		return m.handleSubmit()
 	}
-	m.settleAutopilotHint("handing back")
+	m.settleAutopilotNotice(autopilotHandback())
 	return m.fireIdleHooksCmd(msg.result)
 }
 
