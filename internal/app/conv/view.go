@@ -156,11 +156,11 @@ func RenderMessageAt(p RenderContext, idx int, isStreaming bool) string {
 	msg := p.Messages[idx]
 	var sb strings.Builder
 
-	// A copilot continuation wears a "↖ autopilot · N/M" annotation hugging its
-	// "❭" line from below (no blank between) so the up-left arrow points back at
-	// the instruction; the normal blank line above still separates it from the
-	// turn it continues.
-	autopilotDriven := msg.Role == core.RoleUser && msg.ToolResult == nil && msg.AutopilotStep > 0
+	// A copilot-produced turn (continuation or rewrite) wears a "↖ autopilot ·
+	// <note>" annotation hugging its "❭" line from below (no blank between) so
+	// the up-left arrow points back at the instruction; the normal blank line
+	// above still separates it from the turn before.
+	autopilotDriven := msg.Role == core.RoleUser && msg.ToolResult == nil && msg.AutopilotNote != ""
 
 	if msg.ToolResult == nil {
 		sb.WriteString("\n")
@@ -185,7 +185,7 @@ func RenderMessageAt(p RenderContext, idx int, isStreaming bool) string {
 		default:
 			sb.WriteString(RenderUserMessage(msg.Content, msg.DisplayContent, msg.Images, p.MDRenderer, p.Width))
 			if autopilotDriven {
-				sb.WriteString(RenderAutopilotStep(msg.AutopilotStep, msg.AutopilotMax))
+				sb.WriteString(RenderAutopilotMark(msg.AutopilotNote))
 			}
 		}
 	case core.RoleNotice:

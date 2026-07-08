@@ -108,8 +108,20 @@ func autopilotHint(detail string) string {
 // autopilotHandback is the notice shown when the copilot returns control to the
 // human — it stops mid-mission (needs a decision, or spent its continuation
 // budget), so the arrow curves back to the user rather than driving forward.
-func autopilotHandback() string {
-	return autopilotHintMark.Render("↩ autopilot") + autopilotHintDim.Render(" · over to you")
+// A non-empty detail (e.g. the decide error) rides dimmed after it.
+func autopilotHandback(detail string) string {
+	s := autopilotHintMark.Render("↩ autopilot") + autopilotHintDim.Render(" · over to you")
+	if detail != "" {
+		s += autopilotHintDim.Render(" · " + detail)
+	}
+	return s
+}
+
+// autopilotAction is the green notice for something the copilot handled itself
+// (answered a question for you) — green = it kept the session moving, matching
+// the ↖ continuation mark and the auto-approved decision hint.
+func autopilotAction(detail string) string {
+	return autopilotDoneMark.Render("⏵ autopilot") + autopilotHintDim.Render(" · "+detail)
 }
 
 // autopilotMissionDone is the green notice shown when the copilot judges the
@@ -216,7 +228,7 @@ func (m *model) autopilotContinueCmd(result core.Result) tea.Cmd {
 		return nil
 	}
 	if m.autopilotContinuations >= ar.ResolvedMaxContinuations() {
-		m.conv.AddNotice(autopilotHandback()) // spent the budget; the ↖ N/N above says why
+		m.conv.AddNotice(autopilotHandback("")) // spent the budget; the ↖ N/N above says why
 		return nil
 	}
 	mission := strings.TrimSpace(ar.Mission)
@@ -346,12 +358,21 @@ func (m *model) handleAutopilotDecision(msg autopilotDecisionMsg) tea.Cmd {
 		}
 		return m.fireIdleHooksCmd(msg.result)
 	}
-	// Stopped without completing: hand back. A kick that couldn't find an opening
-	// step stays quiet — it never took over, so there's nothing to hand back.
+	// Stopped without completing: hand back, surfacing a decide error so a
+	// misconfigured model doesn't read as a silent "chose to stop". A kick that
+	// found nothing to open stays quiet — it never took over, so there's nothing
+	// to hand back — but a kick that *errored* says so.
 	if msg.kick {
+		if msg.err != nil {
+			m.conv.AddNotice(autopilotHint("start failed · " + kit.TruncateText(msg.err.Error(), 120)))
+		}
 		return nil
 	}
-	m.conv.AddNotice(autopilotHandback())
+	detail := ""
+	if msg.err != nil {
+		detail = kit.TruncateText(msg.err.Error(), 120)
+	}
+	m.conv.AddNotice(autopilotHandback(detail))
 	return m.fireIdleHooksCmd(msg.result)
 }
 
@@ -521,6 +542,7 @@ func (m *model) autopilotRewriteCmd(userMessage string) (tea.Cmd, bool) {
 	}
 	mission := strings.TrimSpace(ar.Mission)
 	systemPrompt := m.autopilotSystemPrompt()
+	m.autopilotDeciding = true // rewrite in flight — "thinking…" on the mode line
 	return autopilotAsync(func(ctx context.Context) tea.Msg {
 		return autopilotRewriteMsg{original: userMessage, rewritten: autopilotRewriteInput(ctx, provider, modelID, systemPrompt, mission, userMessage)}
 	}), true
@@ -538,15 +560,18 @@ func autopilotRewriteInput(ctx context.Context, provider llm.Provider, modelID, 
 	return out
 }
 
-// handleAutopilotRewrite re-submits the (possibly) rewritten message.
+// handleAutopilotRewrite re-submits the (possibly) rewritten message. When the
+// rewrite changed the text, the re-submitted message wears the "↖ autopilot ·
+// refined" annotation (via autopilotRefined → dispatchSubmission) instead of a
+// separate notice. The message must never be lost, so this submits even if the
+// user left AutoPilot while the rewrite ran.
 func (m *model) handleAutopilotRewrite(msg autopilotRewriteMsg) tea.Cmd {
+	m.autopilotDeciding = false
 	text := msg.rewritten
 	if text == "" {
 		text = msg.original
 	}
-	if text != msg.original {
-		m.conv.AddNotice(autopilotHint("refined your request"))
-	}
+	m.autopilotRefined = text != msg.original
 	m.autopilotRewrote = true
 	m.userInput.Textarea.SetValue(text)
 	return m.handleSubmit()
@@ -577,11 +602,11 @@ func (m *model) handleAutopilotQuestion(msg autopilotQuestionMsg) tea.Cmd {
 		return nil
 	}
 	if !msg.answer || len(msg.answers) == 0 {
-		m.conv.AddNotice(autopilotHint("left this question for you"))
+		m.conv.AddNotice(autopilotHandback("this question is yours"))
 		return nil
 	}
 	m.conv.Modal.Question.Hide()
-	m.conv.AddNotice(autopilotHint("answered for you"))
+	m.conv.AddNotice(autopilotAction("answered for you"))
 	return m.handleQuestionResponse(conv.QuestionResponseMsg{
 		Request:  msg.req,
 		Response: &tool.QuestionResponse{RequestID: msg.req.ID, Answers: msg.answers},
