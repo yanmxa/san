@@ -93,6 +93,7 @@ func (m *model) autopilotEngaged() bool {
 var (
 	autopilotHintMark = lipgloss.NewStyle().Foreground(kit.CurrentTheme.Warning)
 	autopilotHintDim  = lipgloss.NewStyle().Foreground(kit.CurrentTheme.TextDim)
+	autopilotDoneMark = lipgloss.NewStyle().Foreground(kit.CurrentTheme.Success)
 )
 
 // autopilotHint formats a concise copilot notice: an amber "⏵ autopilot" mark
@@ -109,6 +110,14 @@ func autopilotHint(detail string) string {
 // budget), so the arrow curves back to the user rather than driving forward.
 func autopilotHandback() string {
 	return autopilotHintMark.Render("↩ autopilot") + autopilotHintDim.Render(" · over to you")
+}
+
+// autopilotMissionDone is the green notice shown when the copilot judges the
+// mission fully accomplished — a success terminal, distinct from the amber
+// handback. AutoPilot stays on (retireAutopilotMission drops to the passive
+// baseline), so the human keeps the auto-approve safety net.
+func autopilotMissionDone() string {
+	return autopilotDoneMark.Render("✓ autopilot") + autopilotHintDim.Render(" · mission complete")
 }
 
 // settleAutopilotNotice resolves the pending "thinking…" notice into rendered on
@@ -188,6 +197,7 @@ func (m *model) missionReply(ctx context.Context, history []input.MissionMessage
 type autopilotDecisionMsg struct {
 	result      core.Result
 	cont        bool
+	done        bool
 	instruction string
 	err         error
 }
@@ -195,10 +205,12 @@ type autopilotDecisionMsg struct {
 const continueDecisionTask = `The agent just finished a turn and is about to hand control back to the human. Decide whether to keep it going toward the mission.
 
 Reply with ONLY a JSON object:
-{"continue": true|false, "instruction": "the next thing to tell the agent"}
+{"continue": true|false, "done": true|false, "instruction": "the next thing to tell the agent"}
 
-Set continue=true only if the mission is clearly not yet complete AND there is a concrete, safe next step you can direct. The instruction is a short, direct imperative — exactly what you'd type to the agent as the next message.
-Set continue=false (with instruction "") if the mission looks complete, if you are unsure, if it needs a human decision, or if the agent is blocked or asking for input. When in doubt, stop.`
+- continue=true (with a short, direct instruction — exactly what you'd type to the agent next) only if the mission is clearly not yet complete AND there is a concrete, safe next step you can direct.
+- done=true (continue=false, instruction "") only if the mission is fully accomplished — nothing meaningful is left to do.
+- continue=false, done=false (instruction "") if you are stopping but the mission is NOT complete: you are unsure, it needs a human decision, or the agent is blocked or asking for input.
+When in doubt, stop (continue=false, done=false).`
 
 // autopilotContinueCmd asks the copilot whether to auto-continue the finished
 // turn. It returns nil (letting the turn go idle normally) when AutoPilot mode
@@ -225,25 +237,26 @@ func (m *model) autopilotContinueCmd(result core.Result) tea.Cmd {
 	systemPrompt := m.autopilotSystemPrompt()
 	m.conv.AddNotice(autopilotHint("thinking…"))
 	return autopilotAsync(func(ctx context.Context) tea.Msg {
-		cont, instruction, err := autopilotDecideContinue(ctx, provider, modelID, systemPrompt, mission, last)
-		return autopilotDecisionMsg{result: result, cont: cont, instruction: instruction, err: err}
+		cont, done, instruction, err := autopilotDecideContinue(ctx, provider, modelID, systemPrompt, mission, last)
+		return autopilotDecisionMsg{result: result, cont: cont, done: done, instruction: instruction, err: err}
 	})
 }
 
-func autopilotDecideContinue(ctx context.Context, provider llm.Provider, modelID, systemPrompt, mission, lastTurn string) (bool, string, error) {
+func autopilotDecideContinue(ctx context.Context, provider llm.Provider, modelID, systemPrompt, mission, lastTurn string) (cont, done bool, instruction string, err error) {
 	user := continueDecisionTask + "\n\nMission:\n" + mission + "\n\nThe agent's last turn ended with:\n" + kit.TruncateText(lastTurn, 2000)
 	content, err := autopilotComplete(ctx, provider, modelID, systemPrompt, user, 400)
 	if err != nil {
-		return false, "", err
+		return false, false, "", err
 	}
 	var out struct {
 		Continue    bool   `json:"continue"`
+		Done        bool   `json:"done"`
 		Instruction string `json:"instruction"`
 	}
 	if err := json.Unmarshal([]byte(reviewer.ExtractJSONObject(content)), &out); err != nil {
-		return false, "", err
+		return false, false, "", err
 	}
-	return out.Continue, strings.TrimSpace(out.Instruction), nil
+	return out.Continue, out.Done, strings.TrimSpace(out.Instruction), nil
 }
 
 // handleAutopilotDecision acts on the copilot's turn-end verdict: on continue it
@@ -264,8 +277,25 @@ func (m *model) handleAutopilotDecision(msg autopilotDecisionMsg) tea.Cmd {
 		m.userInput.Textarea.SetValue(msg.instruction) // visible: the copilot "types" it, then it reads back as the submitted message
 		return m.handleSubmit()
 	}
+	if msg.err == nil && msg.done {
+		m.settleAutopilotNotice(autopilotMissionDone())
+		m.retireAutopilotMission()
+		return m.fireIdleHooksCmd(msg.result)
+	}
 	m.settleAutopilotNotice(autopilotHandback())
 	return m.fireIdleHooksCmd(msg.result)
+}
+
+// retireAutopilotMission winds down a finished mission without leaving AutoPilot:
+// it clears the mission and resets the steers to the passive baseline (permission
+// + bash judging), so the copilot stops actively driving — no more continue,
+// rewrite, or auto-answer — and just keeps auto-approving while the human takes
+// over. Session-scoped: the saved settings.json config (the user's template) is
+// left untouched.
+func (m *model) retireAutopilotMission() {
+	m.env.AutoPilot.Mission = ""
+	m.env.AutoPilot.Steers = setting.SteerSettings{BashPrompt: true} // Permission nil = on
+	m.rebuildAutopilotReviewer()
 }
 
 // autopilotComplete runs one single-user-message completion and returns the
