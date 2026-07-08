@@ -210,7 +210,9 @@ Reply with ONLY a JSON object:
 - continue=true (with a short, direct instruction — exactly what you'd type to the agent next) only if the mission is clearly not yet complete AND there is a concrete, safe next step you can direct.
 - done=true (continue=false, instruction "") only if the mission is fully accomplished — nothing meaningful is left to do.
 - continue=false, done=false (instruction "") if you are stopping but the mission is NOT complete: you are unsure, it needs a human decision, or the agent is blocked or asking for input.
-When in doubt, stop (continue=false, done=false).`
+When in doubt, stop (continue=false, done=false).
+
+Judge what is already accomplished from the whole session transcript below, not the last turn alone — do not re-issue a step the transcript shows is already done.`
 
 // autopilotContinueCmd asks the copilot whether to auto-continue the finished
 // turn. It returns nil (letting the turn go idle normally) when AutoPilot mode
@@ -233,17 +235,51 @@ func (m *model) autopilotContinueCmd(result core.Result) tea.Cmd {
 	if provider == nil {
 		return nil
 	}
-	last := core.LastAssistantChatContent(m.conv.Messages)
+	transcript := autopilotRecentTranscript(m.conv.Messages, 3000)
 	systemPrompt := m.autopilotSystemPrompt()
 	m.conv.AddNotice(autopilotHint("thinking…"))
 	return autopilotAsync(func(ctx context.Context) tea.Msg {
-		cont, done, instruction, err := autopilotDecideContinue(ctx, provider, modelID, systemPrompt, mission, last)
+		cont, done, instruction, err := autopilotDecideContinue(ctx, provider, modelID, systemPrompt, mission, transcript)
 		return autopilotDecisionMsg{result: result, cont: cont, done: done, instruction: instruction, err: err}
 	})
 }
 
-func autopilotDecideContinue(ctx context.Context, provider llm.Provider, modelID, systemPrompt, mission, lastTurn string) (cont, done bool, instruction string, err error) {
-	user := continueDecisionTask + "\n\nMission:\n" + mission + "\n\nThe agent's last turn ended with:\n" + kit.TruncateText(lastTurn, 2000)
+// autopilotRecentTranscript renders the recent human/agent turns as a compact
+// "you:/agent:" transcript for the turn-end decision, so the copilot judges
+// mission progress across the whole run — not from the last turn alone (which
+// can't tell it an earlier step is already done). Walks back from the newest
+// message within a character budget, then returns the kept turns oldest-first;
+// tool-result and compact-summary rows are skipped.
+func autopilotRecentTranscript(messages []core.ChatMessage, budget int) string {
+	var lines []string
+	used := 0
+	for i := len(messages) - 1; i >= 0 && used < budget; i-- {
+		msg := messages[i]
+		var label string
+		switch {
+		case msg.Role == core.RoleUser && msg.ToolResult == nil && !core.IsCompactSummary(msg.Content):
+			label = "you"
+		case msg.Role == core.RoleAssistant:
+			label = "agent"
+		default:
+			continue
+		}
+		text := strings.TrimSpace(msg.Content)
+		if text == "" {
+			continue
+		}
+		line := label + ": " + kit.TruncateText(text, 600)
+		lines = append(lines, line)
+		used += len(line)
+	}
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i] // oldest-first, so it reads top-to-bottom
+	}
+	return strings.Join(lines, "\n")
+}
+
+func autopilotDecideContinue(ctx context.Context, provider llm.Provider, modelID, systemPrompt, mission, transcript string) (cont, done bool, instruction string, err error) {
+	user := continueDecisionTask + "\n\nMission:\n" + mission + "\n\nSession so far (recent turns, oldest first):\n" + transcript
 	content, err := autopilotComplete(ctx, provider, modelID, systemPrompt, user, 400)
 	if err != nil {
 		return false, false, "", err
