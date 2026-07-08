@@ -156,11 +156,12 @@ func RenderMessageAt(p RenderContext, idx int, isStreaming bool) string {
 	msg := p.Messages[idx]
 	var sb strings.Builder
 
-	// A copilot continuation hugs the turn it continues: no blank line above, and
-	// a "↓ autopilot · N/M" header pointing down at its "❭" line.
+	// A copilot continuation wears a "↓ autopilot · N/M" header that hugs its "❭"
+	// line (drawn below, no blank between) so the arrow points at the instruction;
+	// the normal blank line above still separates it from the turn it continues.
 	autopilotDriven := msg.Role == core.RoleUser && msg.ToolResult == nil && msg.AutopilotStep > 0
 
-	if msg.ToolResult == nil && !autopilotDriven {
+	if msg.ToolResult == nil {
 		sb.WriteString("\n")
 	}
 
