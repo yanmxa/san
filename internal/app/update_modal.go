@@ -17,7 +17,15 @@ func (m *model) cycleOperationMode() tea.Cmd {
 
 	m.services.Hook.SetPermissionMode(m.env.OperationModeName())
 	// Landing on AutoPilot with the Start steer + a mission opens it hands-free.
-	return m.autopilotKickCmd()
+	if cmd := m.autopilotKickCmd(); cmd != nil {
+		return cmd
+	}
+	// With the Suggest steer on, surface the opening proposal now rather than
+	// waiting for the first turn boundary.
+	if m.autopilotEngaged() && m.env.AutoPilot.Steers.Suggest {
+		return input.StartPromptSuggestion(m.promptSuggestionDeps())
+	}
+	return nil
 }
 
 func (m *model) updateMode(msg tea.Msg) (tea.Cmd, bool) {
