@@ -307,11 +307,11 @@ func (p *AutopilotSelector) rows() []apRow {
 		{kind: apRowEntry, label: "System Prompt", desc: "how it drives", open: apSystemPrompt, summary: systemPromptSummary},
 		{kind: apRowSpacer},
 		{kind: apRowSection, label: "Steer"},
-		{kind: apRowSteer, label: "Turn Start", desc: "rewrite each input", get: getTurnStart, toggle: toggleTurnStart},
+		{kind: apRowSteer, label: "Start", desc: "rewrite each input", get: getTurnStart, toggle: toggleTurnStart},
 		{kind: apRowSteer, label: "Permission", desc: "auto-approve gray zone", get: getPermission, toggle: togglePermission},
 		{kind: apRowSteer, label: "Bash", desc: "answer command prompts", get: getBash, toggle: toggleBash},
 		{kind: apRowSteer, label: "Question", desc: "answer AskUserQuestion", get: getQuestion, toggle: toggleQuestion},
-		{kind: apRowSteer, label: "Turn End", desc: "auto-continue the turn", get: getTurnEnd, toggle: toggleTurnEnd},
+		{kind: apRowSteer, label: "End", desc: "auto-continue the turn", get: getTurnEnd, toggle: toggleTurnEnd},
 	}
 	if p.snap.Steers.TurnEnd {
 		rows = append(rows, apRow{kind: apRowInt, label: "Continue at most", indent: 1})
