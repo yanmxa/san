@@ -120,15 +120,6 @@ func autopilotMissionDone() string {
 	return autopilotDoneMark.Render("✓ autopilot") + autopilotHintDim.Render(" · mission complete")
 }
 
-// settleAutopilotNotice resolves the pending "thinking…" notice into rendered on
-// the same line — falling back to a fresh notice if that line already flushed to
-// scrollback — so the copilot's deliberation and its outcome read as one line.
-func (m *model) settleAutopilotNotice(rendered string) {
-	if !m.conv.SetLastNotice(rendered) {
-		m.conv.AddNotice(rendered)
-	}
-}
-
 // marshalAutoPilot encodes the live config for session persistence, returning
 // "" for an unset config so untouched sessions carry no autopilot state.
 func marshalAutoPilot(a setting.AutoPilotSettings) string {
@@ -196,6 +187,7 @@ func (m *model) missionReply(ctx context.Context, history []input.MissionMessage
 // to the UI goroutine.
 type autopilotDecisionMsg struct {
 	result      core.Result
+	kick        bool // opened the mission (no prior turn) vs continued a finished one
 	cont        bool
 	done        bool
 	instruction string
@@ -237,10 +229,44 @@ func (m *model) autopilotContinueCmd(result core.Result) tea.Cmd {
 	}
 	transcript := autopilotRecentTranscript(m.conv.Messages, 3000)
 	systemPrompt := m.autopilotSystemPrompt()
-	m.conv.AddNotice(autopilotHint("thinking…"))
+	m.autopilotDeciding = true // shown on the mode indicator, not a transcript line
 	return autopilotAsync(func(ctx context.Context) tea.Msg {
 		cont, done, instruction, err := autopilotDecideContinue(ctx, provider, modelID, systemPrompt, mission, transcript)
 		return autopilotDecisionMsg{result: result, cont: cont, done: done, instruction: instruction, err: err}
+	})
+}
+
+// autopilotKickCmd opens the mission when the human hasn't: on entering AutoPilot
+// with the TurnStart steer on, a mission set, and the agent idle, it derives the
+// first step from the mission (the same decision as TurnEnd, just an empty-ish
+// transcript) and submits it — so briefing a mission and switching autopilot on
+// is enough to start, with no opening turn to type. Returns nil when any
+// precondition is unmet, or when the human is mid-compose (don't clobber input).
+func (m *model) autopilotKickCmd() tea.Cmd {
+	ar := m.env.AutoPilot
+	if !m.autopilotEngaged() || !ar.Steers.TurnStart {
+		return nil
+	}
+	if m.conv.Stream.Active || strings.TrimSpace(m.userInput.FullValue()) != "" {
+		return nil
+	}
+	if m.autopilotContinuations >= ar.ResolvedMaxContinuations() {
+		return nil
+	}
+	mission := strings.TrimSpace(ar.Mission)
+	if mission == "" {
+		return nil
+	}
+	provider, modelID := m.resolveReviewerModel(ar.Model)
+	if provider == nil {
+		return nil
+	}
+	transcript := autopilotRecentTranscript(m.conv.Messages, 3000)
+	systemPrompt := m.autopilotSystemPrompt()
+	m.autopilotDeciding = true // shown on the mode indicator, not a transcript line
+	return autopilotAsync(func(ctx context.Context) tea.Msg {
+		cont, done, instruction, err := autopilotDecideContinue(ctx, provider, modelID, systemPrompt, mission, transcript)
+		return autopilotDecisionMsg{kick: true, cont: cont, done: done, instruction: instruction, err: err}
 	})
 }
 
@@ -295,30 +321,37 @@ func autopilotDecideContinue(ctx context.Context, provider llm.Provider, modelID
 	return out.Continue, out.Done, strings.TrimSpace(out.Instruction), nil
 }
 
-// handleAutopilotDecision acts on the copilot's turn-end verdict: on continue it
-// "types" the instruction into the composer and submits it (visible, budgeted);
-// on stop it fires the idle hooks OnTurnEnd deferred while the decision ran.
+// handleAutopilotDecision acts on the copilot's turn-end or kick verdict: on
+// continue it "types" the instruction into the composer and submits it (visible,
+// budgeted); on done it retires the mission; otherwise it hands back. A kick (no
+// prior turn) fires no idle hooks and stays quiet when it finds nothing to open.
 func (m *model) handleAutopilotDecision(msg autopilotDecisionMsg) tea.Cmd {
-	// The human may have started a turn while the decision was in flight; if so,
-	// stand down entirely.
-	if m.conv.Stream.Active {
+	m.autopilotDeciding = false // the "thinking…" indicator clears here
+	// The human may have started a turn, or cycled out of AutoPilot, while the
+	// decision was in flight; if so, stand down entirely.
+	if m.conv.Stream.Active || !m.autopilotEngaged() {
 		return nil
 	}
 	if msg.err == nil && msg.cont && msg.instruction != "" {
 		m.autopilotContinuations++
 		m.autopilotContinuing = true
-		// Retract the transient "thinking…" notice; the "↖ autopilot · N/M"
-		// annotation rides the submitted turn (dispatchSubmission tags it) instead.
-		m.conv.DropLastNotice()
 		m.userInput.Textarea.SetValue(msg.instruction) // visible: the copilot "types" it, then it reads back as the submitted message
 		return m.handleSubmit()
 	}
 	if msg.err == nil && msg.done {
-		m.settleAutopilotNotice(autopilotMissionDone())
+		m.conv.AddNotice(autopilotMissionDone())
 		m.retireAutopilotMission()
+		if msg.kick {
+			return nil
+		}
 		return m.fireIdleHooksCmd(msg.result)
 	}
-	m.settleAutopilotNotice(autopilotHandback())
+	// Stopped without completing: hand back. A kick that couldn't find an opening
+	// step stays quiet — it never took over, so there's nothing to hand back.
+	if msg.kick {
+		return nil
+	}
+	m.conv.AddNotice(autopilotHandback())
 	return m.fireIdleHooksCmd(msg.result)
 }
 

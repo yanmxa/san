@@ -10,12 +10,14 @@ import (
 	"github.com/genai-io/san/internal/tool"
 )
 
-func (m *model) cycleOperationMode() {
+func (m *model) cycleOperationMode() tea.Cmd {
 	allowBypass := m.services.Setting.AllowBypass()
 	m.env.OperationMode = m.env.OperationMode.NextWithBypass(allowBypass)
 	m.env.ApplyModePermissions(m.env.CWD)
 
 	m.services.Hook.SetPermissionMode(m.env.OperationModeName())
+	// Landing on AutoPilot with the Start steer + a mission opens it hands-free.
+	return m.autopilotKickCmd()
 }
 
 func (m *model) updateMode(msg tea.Msg) (tea.Cmd, bool) {

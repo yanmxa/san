@@ -86,6 +86,10 @@ type model struct {
 	// dispatchSubmission doesn't rewrite it a second time.
 	autopilotRewrote bool
 
+	// autopilotDeciding is true while a turn-end/kick decision is in flight, so
+	// the mode indicator shows "thinking…" instead of a transcript notice.
+	autopilotDeciding bool
+
 	// Streaming blocks render their markdown off the UI goroutine so a completed
 	// block never stalls repaint. See flushState and model_scrollback.go.
 	flush flushState
