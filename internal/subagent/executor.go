@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/genai-io/san/internal/core"
@@ -485,9 +486,40 @@ func (e *Executor) resolveModel(ctx context.Context, requestModel, configModel s
 		if err != nil {
 			return nil, "", fmt.Errorf("model %q: %w", ref, err)
 		}
+		// A cross-provider override is a deliberate choice: if the target
+		// provider doesn't offer the model, surface it rather than firing a
+		// request the provider rejects with an opaque error.
+		if !modelAvailable(ctx, p, modelID) {
+			return nil, "", fmt.Errorf("model %q is not available on provider %q", ref, p.Name())
+		}
 		return p, modelID, nil
 	}
-	return e.provider, resolveModelAlias(ref), nil
+	// A bare id / alias stays on the parent provider. A model that provider
+	// doesn't offer (commonly a spawn that named another vendor's model) comes
+	// back as an opaque 400, so fall back to the inherited model instead.
+	modelID := resolveModelAlias(ref)
+	if modelID != e.parentModelID && !modelAvailable(ctx, e.provider, modelID) {
+		log.LogError("subagent model override", fmt.Errorf("model %q not offered by the current provider; inheriting %q instead", modelID, e.parentModelID))
+		return e.provider, e.parentModelID, nil
+	}
+	return e.provider, modelID, nil
+}
+
+// modelAvailable reports whether modelID is in the provider's catalog. It is
+// best-effort: a nil provider, a catalog fetch error, or an empty catalog all
+// report true so a spawn is never blocked by a model we can't verify — the
+// guard only rejects a model the provider positively says it does not offer.
+func modelAvailable(ctx context.Context, p llm.Provider, modelID string) bool {
+	if p == nil || modelID == "" {
+		return true
+	}
+	models, err := p.ListModels(ctx)
+	if err != nil || len(models) == 0 {
+		return true
+	}
+	return slices.ContainsFunc(models, func(m llm.ModelInfo) bool {
+		return m.ID == modelID
+	})
 }
 
 func shouldRetryWithParentModel(err error, modelID, parentModelID string) bool {

@@ -148,6 +148,65 @@ func TestResolveModelPropagatesResolverError(t *testing.T) {
 	}
 }
 
+// stubProvider is a catalog-only Provider for exercising the model guard.
+type stubProvider struct {
+	name   string
+	models []llm.ModelInfo
+	err    error
+}
+
+func (s *stubProvider) Stream(context.Context, llm.CompletionOptions) <-chan llm.StreamChunk {
+	return nil
+}
+func (s *stubProvider) ListModels(context.Context) ([]llm.ModelInfo, error) {
+	return s.models, s.err
+}
+func (s *stubProvider) Name() string { return s.name }
+
+// A same-provider override the parent provider does not offer falls back to the
+// inherited model instead of firing a request that returns an opaque 400.
+func TestResolveModelFallsBackWhenOverrideNotInCatalog(t *testing.T) {
+	provider := &stubProvider{name: "openai", models: []llm.ModelInfo{{ID: "gpt-5.4"}}}
+	executor := &Executor{provider: provider, parentModelID: "gpt-5.4"}
+
+	if _, got, err := executor.resolveModel(context.Background(), "opus", ""); err != nil || got != "gpt-5.4" {
+		t.Fatalf("resolveModel(opus) = (%q, %v), want inherited gpt-5.4", got, err)
+	}
+}
+
+// A same-provider override the parent provider does offer is used as-is.
+func TestResolveModelKeepsOverrideInCatalog(t *testing.T) {
+	provider := &stubProvider{name: "openai", models: []llm.ModelInfo{{ID: "gpt-5.4"}, {ID: "gpt-5.3-codex-spark"}}}
+	executor := &Executor{provider: provider, parentModelID: "gpt-5.4"}
+
+	if _, got, err := executor.resolveModel(context.Background(), "gpt-5.3-codex-spark", ""); err != nil || got != "gpt-5.3-codex-spark" {
+		t.Fatalf("resolveModel() = (%q, %v), want gpt-5.3-codex-spark", got, err)
+	}
+}
+
+// A cross-provider override the target provider does not offer is a hard error,
+// not a silent fall back to the parent (the vendor was chosen deliberately).
+func TestResolveModelCrossProviderRejectsUnknownModel(t *testing.T) {
+	target := &stubProvider{name: "deepseek", models: []llm.ModelInfo{{ID: "deepseek-v3"}}}
+	stub := &stubResolver{provider: target}
+	executor := &Executor{parentModelID: "gpt-5.4", resolver: stub}
+
+	if _, _, err := executor.resolveModel(context.Background(), "deepseek/deepseek-v4", ""); err == nil {
+		t.Fatal("expected an error for a cross-provider model absent from the target catalog")
+	}
+}
+
+// A catalog we can't read (fetch error) must not block a spawn: the override is
+// used as-is rather than rejected.
+func TestResolveModelAllowsOverrideWhenCatalogUnavailable(t *testing.T) {
+	provider := &stubProvider{name: "openai", err: errors.New("network down")}
+	executor := &Executor{provider: provider, parentModelID: "gpt-5.4"}
+
+	if _, got, err := executor.resolveModel(context.Background(), "some-model", ""); err != nil || got != "some-model" {
+		t.Fatalf("resolveModel() = (%q, %v), want some-model passed through", got, err)
+	}
+}
+
 func TestParseVendorModel(t *testing.T) {
 	tests := []struct {
 		ref    string
