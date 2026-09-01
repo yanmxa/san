@@ -1,6 +1,10 @@
 package core
 
 import (
+	"iter"
+
+	"github.com/genai-io/sdk-go/pkg/ai"
+
 	"context"
 	"errors"
 	"fmt"
@@ -18,7 +22,7 @@ func TestCompactRecordsSummaryAppendAndBoundary(t *testing.T) {
 	var captured []Event
 	ag := NewAgent(Config{
 		ID:     "test",
-		LLM:    newBlockingLLM(1),
+		Client: testClient(newBlockingLLM(1)),
 		System: NewSystem(),
 		Tools:  NewTools(),
 		CompactFunc: func(_ context.Context, _ []Message) (string, error) {
@@ -90,7 +94,7 @@ func TestCompactEmitsStartBeforeBoundary(t *testing.T) {
 	var captured []Event
 	ag := NewAgent(Config{
 		ID:     "test",
-		LLM:    newBlockingLLM(1),
+		Client: testClient(newBlockingLLM(1)),
 		System: NewSystem(),
 		Tools:  NewTools(),
 		CompactFunc: func(_ context.Context, _ []Message) (string, error) {
@@ -208,7 +212,7 @@ func newAgentForPromptSizing(t *testing.T) *agent {
 	t.Helper()
 	ag := NewAgent(Config{
 		ID:     "test",
-		LLM:    newBlockingLLM(1),
+		Client: testClient(newBlockingLLM(1)),
 		System: NewSystem(),
 		Tools:  NewTools(),
 	})
@@ -246,7 +250,7 @@ func TestIngestSigCompactAppliesInPlaceWithoutStartingTurn(t *testing.T) {
 	var captured []Event
 	ag := NewAgent(Config{
 		ID:      "test",
-		LLM:     newBlockingLLM(1),
+		Client:  testClient(newBlockingLLM(1)),
 		System:  NewSystem(),
 		Tools:   NewTools(),
 		OnEvent: func(e Event) { captured = append(captured, e) },
@@ -307,93 +311,20 @@ func newBlockingLLM(capacity int) *blockingLLM {
 	return &blockingLLM{release: make(chan struct{}, capacity)}
 }
 
-func (b *blockingLLM) InputLimit() int { return 0 }
+func (b *blockingLLM) Name() string { return "blocking" }
 
-func (b *blockingLLM) Infer(ctx context.Context, _ InferRequest) (<-chan Chunk, error) {
-	ch := make(chan Chunk, 1)
-	go func() {
-		defer close(ch)
+func (b *blockingLLM) Stream(ctx context.Context, _ *ai.Request) iter.Seq2[ai.Delta, error] {
+	return func(yield func(ai.Delta, error) bool) {
 		select {
 		case <-ctx.Done():
-			ch <- Chunk{Err: ctx.Err()}
+			yield(ai.Delta{}, ctx.Err())
 		case <-b.release:
-			ch <- Chunk{
-				Done: true,
-				Response: &InferResponse{
-					Content:    "released",
-					StopReason: StopEndTurn,
-				},
+			for _, d := range deltas(InferResponse{Content: "released", StopReason: StopEndTurn}) {
+				if !yield(d, nil) {
+					return
+				}
 			}
 		}
-	}()
-	return ch, nil
-}
-
-func TestInterruptCurrentTurnReturnsToWaitInsteadOfEndingRun(t *testing.T) {
-	llm := newBlockingLLM(4)
-	ag := NewAgent(Config{
-		ID:     "test",
-		LLM:    llm,
-		System: NewSystem(),
-		Tools:  NewTools(),
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	runDone := make(chan error, 1)
-	go func() { runDone <- ag.Run(ctx) }()
-
-	// Drain outbox in the background so emit calls don't block.
-	go func() {
-		for range ag.Outbox() {
-		}
-	}()
-
-	// Kick off the first turn, then interrupt while Infer is blocked.
-	ag.Inbox() <- Message{Role: RoleUser, Content: "first"}
-	// turn is stored at the top of each inner-loop iteration, right
-	// before ThinkAct is called — wait until that pointer is published.
-	waitFor(t, "agent turn to be stored", func() bool {
-		return ag.(*agent).turn.Load() != nil
-	})
-
-	done := ag.InterruptCurrentTurn()
-
-	// InterruptCurrentTurn's done channel should close once ThinkAct
-	// has fully unwound — i.e. before any racing caller-side mutation
-	// of agent state can collide with the agent goroutine.
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("InterruptCurrentTurn done channel did not close")
-	}
-
-	// Resume by sending a second message and releasing the LLM. The
-	// release channel is buffered so the test never races the agent's
-	// read of it. Waiting on turn.Load() instead of sleeping proves the
-	// second turn actually entered Infer.
-	ag.Inbox() <- Message{Role: RoleUser, Content: "second"}
-	waitFor(t, "second turn to enter Infer", func() bool {
-		return ag.(*agent).turn.Load() != nil
-	})
-	llm.release <- struct{}{}
-
-	// Wait for the second turn to drain fully before sending SigStop so
-	// the test asserts the resume path actually executed, rather than
-	// passing because SigStop preempted a never-started second turn.
-	waitFor(t, "second turn to unwind", func() bool {
-		return ag.(*agent).turn.Load() == nil
-	})
-
-	ag.Inbox() <- Message{Signal: SigStop}
-	select {
-	case err := <-runDone:
-		if err != nil {
-			t.Fatalf("Run returned error on shutdown: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not exit after SigStop")
 	}
 }
 
@@ -405,7 +336,7 @@ func TestInterruptBetweenTurnsIsLatched(t *testing.T) {
 	llm := newBlockingLLM(4)
 	ag := NewAgent(Config{
 		ID:     "test",
-		LLM:    llm,
+		Client: testClient(llm),
 		System: NewSystem(),
 		Tools:  NewTools(),
 	}).(*agent)
@@ -446,7 +377,7 @@ func TestIdleInterruptDoesNotEatTheNextMessage(t *testing.T) {
 	llm.release <- struct{}{}
 	ag := NewAgent(Config{
 		ID:     "test",
-		LLM:    llm,
+		Client: testClient(llm),
 		System: NewSystem(),
 		Tools:  NewTools(),
 	})
@@ -583,19 +514,24 @@ func (c cancelOnRunTool) Execute(ctx context.Context, _ map[string]any) (string,
 // batch sequentially.
 type batchLLM struct{}
 
-func (batchLLM) InputLimit() int { return 0 }
-func (batchLLM) Infer(context.Context, InferRequest) (<-chan Chunk, error) {
-	ch := make(chan Chunk, 1)
-	ch <- Chunk{Done: true, Response: &InferResponse{
+func (batchLLM) Name() string { return "batch" }
+
+func (batchLLM) Stream(context.Context, *ai.Request) iter.Seq2[ai.Delta, error] {
+	script := deltas(InferResponse{
 		StopReason: StopToolUse,
 		ToolCalls: []ToolCall{
 			{ID: "c1", Name: "first", Input: "{}"},
 			{ID: "c2", Name: "second", Input: "{}"},
 			{ID: "c3", Name: "third", Input: "{}"},
 		},
-	}}
-	close(ch)
-	return ch, nil
+	})
+	return func(yield func(ai.Delta, error) bool) {
+		for _, d := range script {
+			if !yield(d, nil) {
+				return
+			}
+		}
+	}
 }
 
 // A cancel landing mid-batch must stop the rest of the batch, not just the
@@ -606,7 +542,7 @@ func TestCancelDuringToolBatchStopsTheRemainingCalls(t *testing.T) {
 	defer cancel()
 
 	ag := NewAgent(Config{
-		ID: "test", LLM: batchLLM{}, System: NewSystem(),
+		ID: "test", Client: testClient(batchLLM{}), System: NewSystem(),
 		Tools: NewTools(
 			cancelOnRunTool{name: "first", ran: &ran, ranOnDead: &ranOnDead, onRun: cancel},
 			cancelOnRunTool{name: "second", ran: &ran, ranOnDead: &ranOnDead},

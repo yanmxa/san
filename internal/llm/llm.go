@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"github.com/genai-io/sdk-go/pkg/ai"
+
 	"context"
 	"errors"
 	"sync"
@@ -73,68 +75,18 @@ func NewClient(p Provider, model string, maxTokens int) *Client {
 // core.LLM interface
 // ---------------------------------------------------------------------------
 
-func (l *Client) Infer(ctx context.Context, req core.InferRequest) (<-chan core.Chunk, error) {
+// AI hands over the SDK client for this client's model. Streaming is the
+// SDK's job; what this package owns is reaching the endpoint — credentials,
+// headers, which model — and choosing one.
+func (l *Client) AI(headers map[string]string) (*ai.Client, error) {
 	l.mu.RLock()
-	p := l.provider
-	model := l.model
-	thinking := l.thinkingEffort
+	p, model := l.provider, l.model
 	l.mu.RUnlock()
-
-	opts := CompletionOptions{
-		Model:          model,
-		Messages:       toProviderMessages(req.Messages),
-		Tools:          req.Tools,
-		SystemPrompt:   req.System,
-		MaxTokens:      l.effectiveMaxTokens(),
-		ThinkingEffort: thinking,
+	if p == nil {
+		return nil, errors.New("llm: no provider")
 	}
-
-	srcCh := p.Stream(ctx, opts)
-
-	ch := make(chan core.Chunk, 8)
-	go func() {
-		defer close(ch)
-		// send forwards a chunk, aborting on ctx cancellation so this bridge
-		// goroutine doesn't wedge when streamInfer exits via its ctx.Done.
-		send := func(chunk core.Chunk) bool {
-			select {
-			case ch <- chunk:
-				return true
-			case <-ctx.Done():
-				return false
-			}
-		}
-		for sc := range srcCh {
-			switch sc.Type {
-			case ChunkTypeText:
-				if !send(core.Chunk{Text: sc.Text}) {
-					return
-				}
-			case ChunkTypeThinking:
-				if !send(core.Chunk{Thinking: sc.Text}) {
-					return
-				}
-			case ChunkTypeDone:
-				if !send(core.Chunk{Done: true, Response: sc.Response}) {
-					return
-				}
-			case ChunkTypeError:
-				// Classify here so the agent loop can decide whether to
-				// retry without importing the provider SDKs.
-				send(core.Chunk{Err: llmerr.WrapStream(sc.Error)})
-				return
-			}
-		}
-	}()
-
-	return ch, nil
+	return p.Client(model, headers)
 }
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-// SetThinkingEffort changes the native thinking/reasoning effort value.
 func (l *Client) SetThinkingEffort(effort string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -151,13 +103,6 @@ func (l *Client) ThinkingEffort() string {
 // ---------------------------------------------------------------------------
 // Streaming & Completion (used by loop/app layer)
 // ---------------------------------------------------------------------------
-
-// Stream starts a streaming completion request and returns a chunk channel.
-func (l *Client) Stream(ctx context.Context, msgs []core.Message,
-	tools []ToolSchema, sysPrompt string,
-) <-chan StreamChunk {
-	return l.provider.Stream(ctx, l.completionOpts(msgs, tools, sysPrompt))
-}
 
 // Complete sends a one-shot completion (custom max tokens, no tools).
 // Used for utility calls like conversation compaction.

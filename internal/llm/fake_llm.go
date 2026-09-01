@@ -1,6 +1,10 @@
 package llm
 
 import (
+	"iter"
+
+	"github.com/genai-io/sdk-go/pkg/ai"
+
 	"context"
 	"sync"
 
@@ -60,28 +64,59 @@ func (f *FakeLLM) Send(_ context.Context, msgs []core.Message,
 	return f.nextLocked(), nil
 }
 
-// Stream returns the next response as a single-chunk stream.
-func (f *FakeLLM) Stream(_ context.Context, msgs []core.Message,
-	tools []ToolSchema, sysPrompt string,
-) <-chan StreamChunk {
+// Stream is the ai.Driver method: this double fakes the protocol now, not an
+// abstraction over it, so a test says what the endpoint sends and nothing in
+// between is stubbed.
+func (f *FakeLLM) Stream(_ context.Context, req *ai.Request) iter.Seq2[ai.Delta, error] {
 	f.mu.Lock()
-	f.recordCallLocked(msgs, tools, sysPrompt)
-	ch := make(chan StreamChunk, 1)
-
-	var chunk StreamChunk
-	if f.shouldInjectErrorLocked() {
-		chunk = StreamChunk{Type: ChunkTypeError, Error: f.ErrorValue}
-	} else {
-		resp := f.nextLocked()
-		chunk = StreamChunk{Type: ChunkTypeDone, Response: &resp}
+	f.callCount++
+	msgs := make([]core.Message, 0, len(req.Messages))
+	for _, m := range req.Messages {
+		msgs = append(msgs, core.Message{Role: core.Role(m.Role), Content: m.Content.Text()})
 	}
+	f.Calls = append(f.Calls, CompletionOptions{
+		Model: f.modelID(), SystemPrompt: req.System, Messages: msgs,
+	})
+	inject := f.shouldInjectErrorLocked()
+	errValue := f.ErrorValue
+	resp := f.nextLocked()
 	f.mu.Unlock()
 
-	go func() {
-		ch <- chunk
-		close(ch)
-	}()
-	return ch
+	return func(yield func(ai.Delta, error) bool) {
+		if inject {
+			yield(ai.Delta{}, errValue)
+			return
+		}
+		for _, delta := range fakeDeltas(resp) {
+			if !yield(delta, nil) {
+				return
+			}
+		}
+	}
+}
+
+// fakeDeltas renders one queued answer as the stream a driver would produce.
+func fakeDeltas(r CompletionResponse) []ai.Delta {
+	var out []ai.Delta
+	if r.Thinking != "" {
+		out = append(out, ai.Delta{Block: ai.ThinkingBlock(r.Thinking, r.ThinkingSignature)},
+			ai.Delta{EndBlock: true})
+	}
+	if r.Content != "" {
+		out = append(out, ai.Delta{Block: ai.TextBlock(r.Content)}, ai.Delta{EndBlock: true})
+	}
+	for _, c := range r.ToolCalls {
+		out = append(out, ai.Delta{Block: ai.ToolCallBlock(ai.ToolCall{
+			ID: c.ID, Name: c.Name, Input: c.Input, Signature: c.ThoughtSignature,
+		})})
+	}
+	stop := ai.StopEndTurn
+	if len(r.ToolCalls) > 0 {
+		stop = ai.StopToolUse
+	}
+	return append(out, ai.Delta{StopReason: stop, Usage: &ai.Usage{
+		Input: r.Usage.InputTokens, Output: r.Usage.OutputTokens,
+	}})
 }
 
 // Complete returns the next response (used for utility calls like compaction).

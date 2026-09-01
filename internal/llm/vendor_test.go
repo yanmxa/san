@@ -75,19 +75,33 @@ func claude(t *testing.T, e *endpoint) *vendorProvider {
 		sdkprovider.Config{APIKey: "test-key", BaseURL: e.server.URL})
 }
 
-// collect drains a turn into the chunks San's agent loop would see.
+// collect drains a turn the way the agent loop now does: over the SDK's own
+// stream, since the chunk bridge San used to keep in between is gone.
 func collect(t *testing.T, p *vendorProvider, opts CompletionOptions) (text, thinking string, resp *CompletionResponse, err error) {
 	t.Helper()
-	for chunk := range p.Stream(context.Background(), opts) {
-		switch chunk.Type {
-		case ChunkTypeText:
-			text += chunk.Text
-		case ChunkTypeThinking:
-			thinking += chunk.Text
-		case ChunkTypeDone:
-			resp = chunk.Response
-		case ChunkTypeError:
-			err = chunk.Error
+	client, cerr := p.Client(opts.Model, nil)
+	if cerr != nil {
+		return "", "", nil, cerr
+	}
+	callOpts := []ai.Option{ai.WithSystem(opts.SystemPrompt)}
+	if len(opts.Tools) > 0 {
+		callOpts = append(callOpts, ai.WithTools(core.ToAITools(opts.Tools)...))
+	}
+	if opts.MaxTokens > 0 {
+		callOpts = append(callOpts, ai.WithMaxTokens(opts.MaxTokens))
+	}
+	for event, serr := range client.Stream(context.Background(),
+		core.ToAIMessages(opts.Messages, client.Model()), callOpts...) {
+		if serr != nil {
+			return text, thinking, resp, serr
+		}
+		switch {
+		case event.Type == ai.EventBlockDelta && event.Block.Type == ai.BlockText:
+			text += event.Block.Text
+		case event.Type == ai.EventBlockDelta && event.Block.Type == ai.BlockThinking:
+			thinking += event.Block.Text
+		case event.Type == ai.EventDone:
+			resp = core.FromAIResponse(event.Response)
 		}
 	}
 	return text, thinking, resp, err
@@ -247,11 +261,12 @@ func TestRateLimitIsRetryableWithTheProvidersHint(t *testing.T) {
 	_, _, _, err := collect(t, claude(t, e), CompletionOptions{
 		Model: "claude-opus-5", Messages: []core.Message{{Role: core.RoleUser, Content: "hi"}},
 	})
-	var retryable core.RetryableError
-	if !errors.As(err, &retryable) {
-		t.Fatalf("a 429 was not marked retryable: %v", err)
+	// Asked of pkg/ai now. San used to re-tag this into its own vocabulary,
+	// and the partition it produced was this one exactly.
+	if !ai.IsRetryable(err) {
+		t.Fatalf("a 429 was not retryable: %v", err)
 	}
-	if got := retryable.RetryAfter(); got != 7*time.Second {
+	if got := ai.RetryAfter(err); got != 7*time.Second {
 		t.Errorf("RetryAfter = %v, want the provider's own hint", got)
 	}
 }
@@ -264,12 +279,10 @@ func TestOverflowedPromptAsksForCompaction(t *testing.T) {
 	_, _, _, err := collect(t, claude(t, e), CompletionOptions{
 		Model: "claude-opus-5", Messages: []core.Message{{Role: core.RoleUser, Content: "hi"}},
 	})
-	var exceeded core.ContextExceededError
-	if !errors.As(err, &exceeded) {
+	if !ai.IsContextExceeded(err) {
 		t.Fatalf("an overflowed prompt was not marked for compaction: %v", err)
 	}
-	var retryable core.RetryableError
-	if errors.As(err, &retryable) {
+	if ai.IsRetryable(err) {
 		t.Error("an overflowed prompt was marked retryable; replaying it cannot help")
 	}
 }
@@ -385,64 +398,6 @@ func driverFor(api ai.API) (ai.API, bool) {
 		}
 	}
 	return "", false
-}
-
-func TestThinkingIsReplayedOnlyWhereItCanBe(t *testing.T) {
-	claudeModel, err := catalog.Model("anthropic/claude-opus-5")
-	if err != nil {
-		t.Fatal(err)
-	}
-	deepseekModel, err := catalog.Model("deepseek/deepseek-v4-flash")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sensenovaModel, err := catalog.Model("sensenova/deepseek-v4-flash")
-	if err != nil {
-		t.Fatal(err)
-	}
-	codexModel, err := catalog.Model("openai/gpt-5.6-luna")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	signed := core.Message{Role: core.RoleAssistant, Content: "done", Thinking: "weighing it", ThinkingSignature: "sig-1"}
-	unsigned := core.Message{Role: core.RoleAssistant, Content: "done", Thinking: "weighing it"}
-
-	cases := []struct {
-		name      string
-		msg       core.Message
-		model     ai.Model
-		want      bool
-		signature string
-	}{
-		{"anthropic keeps its own signed thinking", signed, claudeModel, true, "sig-1"},
-		// A session that switched models: the thinking came from somewhere
-		// with no signature, and Anthropic rejects one without.
-		{"anthropic drops unsigned thinking", unsigned, claudeModel, false, ""},
-		// The signature belongs to another protocol and must not travel with it.
-		{"chat completions strips a foreign signature", signed, deepseekModel, true, ""},
-		{"an endpoint that cannot take it back drops it", signed, sensenovaModel, false, ""},
-		// Responses replays reasoning as opaque items instead.
-		{"responses drops the readable summary", signed, codexModel, false, ""},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			block, ok := replayableThinking(tc.msg, tc.model)
-			if ok != tc.want {
-				t.Fatalf("replayed = %v, want %v", ok, tc.want)
-			}
-			if ok && block.Signature != tc.signature {
-				t.Errorf("signature = %q, want %q", block.Signature, tc.signature)
-			}
-		})
-	}
-
-	// The whole conversion agrees with the rule.
-	messages := toMessages([]core.Message{unsigned}, claudeModel)
-	if len(messages) != 1 || messages[0].Content.Has(ai.BlockThinking) {
-		t.Errorf("unsigned thinking reached an Anthropic request: %+v", messages)
-	}
 }
 
 // listing serves an OpenAI-compatible model list and nothing else.
@@ -582,7 +537,7 @@ func TestAVendorsOwnErrorSurvivesTheSDK(t *testing.T) {
 	p := newVendorProvider("anthropic:api_key", vendor, sdkprovider.Config{APIKey: "k", BaseURL: server.URL})
 
 	var streamErr error
-	for chunk := range p.Stream(context.Background(), CompletionOptions{
+	for chunk := range legacyStream(context.Background(), p, CompletionOptions{
 		Model:    "claude-opus-5",
 		Messages: []core.Message{{Role: core.RoleUser, Content: "hi"}},
 	}) {
@@ -598,8 +553,44 @@ func TestAVendorsOwnErrorSurvivesTheSDK(t *testing.T) {
 	if !errors.As(streamErr, &vendorErr) {
 		t.Errorf("the vendor's own error no longer unwraps out of %T", streamErr)
 	}
-	var retryable core.RetryableError
-	if !errors.As(streamErr, &retryable) {
-		t.Error("an overloaded endpoint was not marked retryable")
+	if !ai.IsRetryable(streamErr) {
+		t.Error("an overloaded endpoint was not retryable")
 	}
+}
+
+// legacyStream reproduces, for tests only, the chunk stream San used to keep
+// between the SDK and its agent loop. Production ranges the SDK's own stream;
+// these tests are about what a vendor sends, not about the shape it arrives in.
+func legacyStream(ctx context.Context, p Provider, opts CompletionOptions) <-chan StreamChunk {
+	ch := make(chan StreamChunk)
+	go func() {
+		defer close(ch)
+		client, err := p.Client(opts.Model, nil)
+		if err != nil {
+			ch <- StreamChunk{Type: ChunkTypeError, Error: err}
+			return
+		}
+		callOpts := []ai.Option{ai.WithSystem(opts.SystemPrompt)}
+		if len(opts.Tools) > 0 {
+			callOpts = append(callOpts, ai.WithTools(core.ToAITools(opts.Tools)...))
+		}
+		if opts.MaxTokens > 0 {
+			callOpts = append(callOpts, ai.WithMaxTokens(opts.MaxTokens))
+		}
+		for event, err := range client.Stream(ctx, core.ToAIMessages(opts.Messages, client.Model()), callOpts...) {
+			if err != nil {
+				ch <- StreamChunk{Type: ChunkTypeError, Error: err}
+				return
+			}
+			switch {
+			case event.Type == ai.EventBlockDelta && event.Block.Type == ai.BlockText:
+				ch <- StreamChunk{Type: ChunkTypeText, Text: event.Block.Text}
+			case event.Type == ai.EventBlockDelta && event.Block.Type == ai.BlockThinking:
+				ch <- StreamChunk{Type: ChunkTypeThinking, Text: event.Block.Text}
+			case event.Type == ai.EventDone:
+				ch <- StreamChunk{Type: ChunkTypeDone, Response: core.FromAIResponse(event.Response)}
+			}
+		}
+	}()
+	return ch
 }

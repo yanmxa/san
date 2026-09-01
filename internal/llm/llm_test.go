@@ -1,6 +1,9 @@
 package llm
 
 import (
+	"github.com/genai-io/sdk-go/pkg/ai"
+	"iter"
+
 	"context"
 	"errors"
 	"testing"
@@ -19,23 +22,26 @@ type mockLLMProvider struct {
 	listCalls int
 }
 
-func (m *mockLLMProvider) Stream(_ context.Context, opts CompletionOptions) <-chan StreamChunk {
-	m.lastOpts = opts
-	ch := make(chan StreamChunk, 1)
-	go func() {
-		defer close(ch)
-		if m.callIdx >= len(m.responses) {
-			ch <- StreamChunk{Type: ChunkTypeDone, Response: &CompletionResponse{
-				Content:    "no more responses",
-				StopReason: "end_turn",
-			}}
-			return
-		}
-		resp := m.responses[m.callIdx]
+func (m *mockLLMProvider) Client(string, map[string]string) (*ai.Client, error) {
+	return ai.NewClientWithDriver(m, ai.Model{ID: "mock", API: "mock"}), nil
+}
+
+func (m *mockLLMProvider) Stream(_ context.Context, req *ai.Request) iter.Seq2[ai.Delta, error] {
+	m.lastOpts = CompletionOptions{SystemPrompt: req.System}
+	resp := CompletionResponse{Content: "no more responses", StopReason: "end_turn"}
+	if m.callIdx < len(m.responses) {
+		resp = m.responses[m.callIdx]
 		m.callIdx++
-		ch <- StreamChunk{Type: ChunkTypeDone, Response: &resp}
-	}()
-	return ch
+	}
+	return func(yield func(ai.Delta, error) bool) {
+		if resp.Content != "" {
+			yield(ai.Delta{Block: ai.TextBlock(resp.Content)}, nil)
+			yield(ai.Delta{EndBlock: true}, nil)
+		}
+		yield(ai.Delta{StopReason: ai.StopEndTurn, Usage: &ai.Usage{
+			Input: resp.Usage.InputTokens, Output: resp.Usage.OutputTokens,
+		}}, nil)
+	}
 }
 
 func (m *mockLLMProvider) ListModels(_ context.Context) ([]ModelInfo, error) {
@@ -73,31 +79,6 @@ func TestLLMSend(t *testing.T) {
 	}
 	if resp.Content != "hello" {
 		t.Errorf("expected 'hello', got '%s'", resp.Content)
-	}
-}
-
-func TestLLMStream(t *testing.T) {
-	mp := &mockLLMProvider{
-		responses: []CompletionResponse{
-			{Content: "streamed", StopReason: "end_turn"},
-		},
-	}
-	l := &Client{provider: mp, model: "test-model"}
-
-	msgs := []core.Message{{Role: core.RoleUser, Content: "hi"}}
-	ch := l.Stream(context.Background(), msgs, nil, "")
-
-	var resp *CompletionResponse
-	for chunk := range ch {
-		if chunk.Type == ChunkTypeDone {
-			resp = chunk.Response
-		}
-	}
-	if resp == nil {
-		t.Fatal("expected response from stream")
-	}
-	if resp.Content != "streamed" {
-		t.Errorf("expected 'streamed', got '%s'", resp.Content)
 	}
 }
 
@@ -371,21 +352,18 @@ func TestFakeLLMStream(t *testing.T) {
 		},
 	}
 
-	ch := fake.Stream(context.Background(), nil, nil, "")
-	var resp *CompletionResponse
-	for chunk := range ch {
-		if chunk.Type == ChunkTypeDone {
-			resp = chunk.Response
-		}
+	// It is a driver now, so what it produces is the stream a provider sends
+	// and what reads it is the SDK's own aggregation.
+	client := ai.NewClientWithDriver(fake, ai.Model{ID: "stub", API: "stub"})
+	resp, err := client.Complete(context.Background(), []ai.Message{ai.UserMessage("go")})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
 	}
-	if resp == nil {
-		t.Fatal("expected response")
+	if resp.Text() != "streamed" {
+		t.Errorf("expected 'streamed', got %q", resp.Text())
 	}
-	if resp.Content != "streamed" {
-		t.Errorf("expected 'streamed', got '%s'", resp.Content)
-	}
-	if resp.Usage.InputTokens != 5 {
-		t.Errorf("expected 5 input tokens, got %d", resp.Usage.InputTokens)
+	if resp.Usage.Input != 5 {
+		t.Errorf("expected 5 input tokens, got %d", resp.Usage.Input)
 	}
 }
 
