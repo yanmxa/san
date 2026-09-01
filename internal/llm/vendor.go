@@ -3,15 +3,17 @@
 // It is one adapter rather than one package per vendor. Every vendor San talks
 // to is a row in the SDK's catalog, and the wire work — four protocols, their
 // streaming shapes, their reasoning dialects — belongs to the SDK's drivers.
-// What is here is the seam: San's Provider on one side, the SDK's ai.Client on
-// the other, and the translation between them.
+//
+// What is here is narrower than it looks: building the SDK client for a model
+// and caching it. Nothing streams through this file. A Provider used to
+// forward a turn and reshape what came back, and the reshaping turned out to
+// be the whole of it, so the stream goes to whoever asked for the client.
 //
 // The vendor_ files divide as follows, one subject each:
 //
 //	vendor.go              the seam: one Provider backed by one configured endpoint
 //	vendor_table.go        which San provider is which catalog vendor, and how to reach it
-//	vendor_convert.go      San's conversation types and the SDK's, in both directions
-//	vendor_errors.go       the SDK's typed failures, tagged for the agent loop
+//	vendor_convert.go      what a catalog model looks like to San's picker
 //	vendor_signin.go       the vendors that authenticate a person, not a service
 //	vendor_credentials.go  those credentials, kept in San's own secret store
 //	vendor_models.go       the two endpoints that answer about their models their own way

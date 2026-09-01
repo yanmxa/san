@@ -217,7 +217,7 @@ const (
 	OnStop    EventType = "AgentStop"  // agent ends (error or nil in Data)
 	PreInfer  EventType = "PreInfer"   // before LLM call
 	PostInfer EventType = "PostInfer"  // after LLM response (*InferResponse in Data)
-	OnChunk   EventType = "Chunk"      // streaming chunk (Chunk in Data)
+	OnChunk   EventType = "Chunk"      // one streamed fragment (ai.Event in Data)
 
 	// OnStreamReset fires when a transient stream failure is about to be
 	// retried: the partial assistant output streamed so far must be discarded

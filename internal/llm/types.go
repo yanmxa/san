@@ -299,10 +299,12 @@ type StreamChunk struct {
 	Error    error               // For error chunks
 }
 
-// ToolSchema is a backward-compatible alias for core.ToolSchema.
+// ToolSchema is core's, under this package's name for it.
 type ToolSchema = core.ToolSchema
 
-// Provider is the interface that all providers must implement
+// Provider is one endpoint San can reach: what it is called, what it serves,
+// and the SDK client that talks to it. It does not stream — the client does —
+// which is why the interface is a factory and not a pipe.
 type Provider interface {
 	// Stream sends a completion request and returns a channel of streaming chunks
 	// Client hands over the SDK client for one model, built and cached by

@@ -1,8 +1,14 @@
-// Package llm holds the connection to the active LLM provider, the registry of
-// available providers/models, and the adapter that reaches every vendor
-// through github.com/genai-io/sdk-go — see vendor.go. Default() returns the
-// package-level *Conn — the mutable provider/model/store handle, guarded by a
-// single mutex.
+// Package llm decides which model San talks to, and hands out the client that
+// talks to it.
+//
+// Inference itself is not here. core ranges an *ai.Client directly, and the
+// stream, the retries and the error kinds are the SDK's — this package used to
+// wrap all three and the wrapping said nothing the SDK had not already said.
+// What is left is what San genuinely owns: which providers exist, which model
+// is current, the credentials to reach it, and the settings a person changed.
+//
+// Default() returns the package-level *Conn — the mutable provider/model/store
+// handle, guarded by a single mutex.
 package llm
 
 import (

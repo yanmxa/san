@@ -22,7 +22,7 @@ import (
 //	        {Content: "hello", StopReason: "end_turn"},
 //	    },
 //	}
-//	// Use fake.Send() or fake.Stream() — both draw from the same Responses slice.
+//	// Send and the driver's own Stream draw from the same Responses slice.
 type FakeLLM struct {
 	// Responses is the queue of responses to return, consumed in order.
 	// Each call to Send/Stream pops the first entry. If exhausted,

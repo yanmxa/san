@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/genai-io/san/internal/core"
-	"github.com/genai-io/san/internal/llm/llmerr"
 )
 
 // defaultMaxTokens is the fallback max output tokens when neither the caller
@@ -23,8 +22,8 @@ const completeMaxAttempts = 3
 // It also provides streaming and completion methods for the loop/app layer,
 // plus cumulative token usage tracking.
 //
-// SetThinking can be called while the agent is running.
-// Changes take effect on the next Infer/Stream call.
+// SetThinking can be called while the agent is running; the change is on the
+// next client this hands out.
 type Client struct {
 	mu             sync.RWMutex
 	provider       Provider
@@ -131,11 +130,13 @@ func (l *Client) Complete(ctx context.Context,
 		if resp, err = Complete(ctx, p, opts); err == nil {
 			return resp, nil
 		}
-		var re core.RetryableError
-		if !errors.As(llmerr.WrapStream(err), &re) || attempt == completeMaxAttempts {
+		// Asked of the SDK, which is where the error came from. San used to
+		// re-tag it into its own retry vocabulary first, and the partition
+		// that produced was this one.
+		if !ai.IsRetryable(err) || attempt == completeMaxAttempts {
 			return resp, err
 		}
-		if werr := core.BackoffSleep(ctx, attempt, re.RetryAfter()); werr != nil {
+		if werr := core.BackoffSleep(ctx, attempt, ai.RetryAfter(err)); werr != nil {
 			return resp, werr
 		}
 	}
