@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -84,7 +85,9 @@ func dialSDK(config ServerConfig) func(context.Context, func()) (conn, error) {
 		}
 		var opts []sdkmcp.Option
 		if onToolsChanged != nil {
-			opts = append(opts, sdkmcp.OnToolsChanged(onToolsChanged))
+			// The SDK hands the callback its own client; San's re-read goes
+			// through this one, which is the same session under San's cache.
+			opts = append(opts, sdkmcp.OnToolsChanged(func(*sdkmcp.Client) { onToolsChanged() }))
 		}
 		c, err := sdkmcp.Connect(ctx, server, opts...)
 		if err != nil {
@@ -307,11 +310,24 @@ func (c *Client) SetOnToolsChanged(callback func()) {
 	c.onToolsChanged = callback
 }
 
+// toolsChangedTimeout bounds the re-read a change notification triggers. The
+// SDK calls this on a goroutine of its dispatch, not the one reading the
+// connection, so a hang here does not wedge the session — but an unbounded read
+// against a server that has stopped answering leaks that goroutine for the life
+// of the process, and a server that stopped answering is exactly the one likely
+// to have sent a notification and then died.
+const toolsChangedTimeout = 30 * time.Second
+
 // notifyToolsChanged re-reads the server's tools and then tells whoever asked.
 // The re-read is the point: a callback that only says "something changed"
 // leaves every consumer to ask again, and they would all ask at once.
+//
+// A failed re-read tells no one, which leaves the last good list in place
+// rather than an empty one — the same trade the transport-era client made.
 func (c *Client) notifyToolsChanged() {
-	if err := c.refresh(context.Background()); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), toolsChangedTimeout)
+	defer cancel()
+	if err := c.refresh(ctx); err != nil {
 		return
 	}
 	c.mu.RLock()
