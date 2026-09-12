@@ -81,7 +81,7 @@ layer produces a worse copy: every lap re-composes a prompt and loses the
 context the previous lap built.
 
 What is rejected is not the back edge — it is the *unbounded* back edge. See
-decision 6.
+Design 6.
 
 ### 2. A node is one subagent turn
 
@@ -127,8 +127,8 @@ a composition of them, not a feature to support separately.
 | Routing | one classifying node, N mutually exclusive conditionals |
 | Parallelization (sectioning) | fan-out, then converge |
 | Parallelization (voting) | the same, with *heterogeneous* branches |
-| Orchestrator–workers | `for_each` (decision 6) |
-| Evaluator–optimizer | a bounded back edge (decision 6) |
+| Orchestrator–workers | `for_each` (Design 6) |
+| Evaluator–optimizer | a bounded back edge (Design 6) |
 
 Voting deserves a note. Running one prompt three times on one model produces
 three highly correlated judgements, not three samples; a majority vote over
@@ -375,12 +375,6 @@ speculative.
   call would have done. The tool description has to push back, the way the
   `Agent` tool's does.
 
-**Rejected, and staying rejected**
-
-Unbounded cycles; an expression language for conditions (string equality
-only); shared mutable state across nodes; a second implementation of
-evaluator–optimizer inside a node; `for_each` inside a loop body.
-
 ## Implementation plan
 
 | Phase | Scope | Size |
@@ -431,7 +425,7 @@ evaluator–optimizer inside a node; `for_each` inside a loop body.
 - [`reference/package-map.md`](../../reference/package-map.md) — where
   `internal/workflow` must be registered.
 - Anthropic, *Building Effective Agents* — the pattern vocabulary used in
-  decision 3, and its distinction between workflows and agents.
+  Design 3, and its distinction between workflows and agents.
 - Argo Workflows — `dependencies`, `when`, `withParam`, `templateRef`.
 - `genai-io/sdk-go` `docs/agent.md` — turn and inference vocabulary, the
   eight stop reasons, and the package's stated scope boundaries.
