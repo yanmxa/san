@@ -134,7 +134,7 @@ func builtinCommandHandlers() map[string]slashCommandHandler {
 		"identity":       (*SlashCommandController).handlePersonaCommand,
 		"persona":        (*SlashCommandController).handlePersonaCommand,
 		"settings":       (*SlashCommandController).handleSettingsCommand,
-		"config":         (*SlashCommandController).handleConfigCommand,
+		"config":         (*SlashCommandController).handleConfigCommand, // deprecated; kept out of the catalog
 		"autopilot":      (*SlashCommandController).handleAutopilotCommand,
 		"goal":           (*SlashCommandController).handleGoalCommand,
 		"name":           (*SlashCommandController).handleNameCommand,
