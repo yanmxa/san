@@ -3,6 +3,40 @@
 All notable changes to San are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v1.22.12] - 2026-10-05
+
+### Added
+- Sessions on one machine message each other (PROP-0003) ([@yanmxa](https://github.com/yanmxa) in [#586](https://github.com/genai-io/san/pull/586))
+- Keep notices across a resume ([@yanmxa](https://github.com/yanmxa) in [#595](https://github.com/genai-io/san/pull/595))
+- Flat spawn→result model + broker message routing ([@yanmxa](https://github.com/yanmxa) in [#325](https://github.com/genai-io/san/pull/325))
+- Auto-update switch in a General tab ([@yanmxa](https://github.com/yanmxa) in [#562](https://github.com/genai-io/san/pull/562))
+- Integrate custom agent management ([@yanmxa](https://github.com/yanmxa) in [#411](https://github.com/genai-io/san/pull/411))
+- Rename /model to /models and remove stale /glob ([@yanmxa](https://github.com/yanmxa) in [#422](https://github.com/genai-io/san/pull/422))
+### Changed
+- Redo the intro animation in a black-and-white comic style ([@yanmxa](https://github.com/yanmxa) in [#598](https://github.com/genai-io/san/pull/598))
+- Bump sdk-go to v0.7.7 ([@yanmxa](https://github.com/yanmxa) in [#593](https://github.com/genai-io/san/pull/593))
+- Drive the tool through the real subagent executor ([@yanmxa](https://github.com/yanmxa) in [#545](https://github.com/genai-io/san/pull/545))
+- V1.21.7 ([@yanmxa](https://github.com/yanmxa) in [#328](https://github.com/genai-io/san/pull/328))
+- One message queue, the SDK agent's ([@yanmxa](https://github.com/yanmxa) in [#589](https://github.com/genai-io/san/pull/589))
+- Drop hand-rolled truncation and one-off seams ([@yanmxa](https://github.com/yanmxa) in [#576](https://github.com/genai-io/san/pull/576))
+### Fixed
+- A message sent right after Esc starts its turn ([@yanmxa](https://github.com/yanmxa) in [#592](https://github.com/genai-io/san/pull/592))
+- Open Copilot's Responses-only models on Responses ([@yanmxa](https://github.com/yanmxa) in [#590](https://github.com/genai-io/san/pull/590))
+- Tell the model not to redo work it delegated ([@yanmxa](https://github.com/yanmxa) in [#587](https://github.com/genai-io/san/pull/587))
+- Keep the task verbatim across auto-compaction ([@yanmxa](https://github.com/yanmxa) in [#579](https://github.com/genai-io/san/pull/579))
+- Label background rows by kind; progress counts the plan only ([@yanmxa](https://github.com/yanmxa) in [#577](https://github.com/genai-io/san/pull/577))
+- Manage per-agent server lifecycles ([@yanmxa](https://github.com/yanmxa) in [#412](https://github.com/genai-io/san/pull/412))
+- Keep persona metadata rows within the panel ([@yanmxa](https://github.com/yanmxa) in [#423](https://github.com/genai-io/san/pull/423))
+- Run shell commands and hooks under a shell Windows has ([@yanmxa](https://github.com/yanmxa) in [#556](https://github.com/genai-io/san/pull/556))
+- Terminate the whole process tree, not just the shell ([@yanmxa](https://github.com/yanmxa) in [#557](https://github.com/genai-io/san/pull/557))
+- Return a Result when a turn dies on inference failure ([@yanmxa](https://github.com/yanmxa) in [#352](https://github.com/genai-io/san/pull/352))
+- Stop signalling a process group that may have been reissued ([@yanmxa](https://github.com/yanmxa) in [#369](https://github.com/genai-io/san/pull/369))
+- Cache a live model listing so the status bar sees its window ([@yanmxa](https://github.com/yanmxa) in [#583](https://github.com/genai-io/san/pull/583))
+- Guard the package-level registry against concurrent reinit ([@yanmxa](https://github.com/yanmxa) in [#358](https://github.com/genai-io/san/pull/358))
+- Drop the streaming caret that stranded a vertical line ([@yanmxa](https://github.com/yanmxa) in [#375](https://github.com/genai-io/san/pull/375))
+- Settle ponytail deferrals, wire subagent mode, cut dead code, unify naming ([@yanmxa](https://github.com/yanmxa) in [#569](https://github.com/genai-io/san/pull/569))
+- Stop the permission check racing the mode switch ([@yanmxa](https://github.com/yanmxa) in [#353](https://github.com/genai-io/san/pull/353))
+- Resuming a YOLO session keeps YOLO ([@yanmxa](https://github.com/yanmxa) in [#580](https://github.com/genai-io/san/pull/580))
 ## [v1.22.11] - 2026-09-23
 
 ### Added
