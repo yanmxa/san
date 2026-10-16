@@ -43,7 +43,7 @@ func dashscopeModelLimits(ctx context.Context, p *vendorProvider, modelID string
 	ctx, cancel := context.WithTimeout(ctx, modelDetailTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.MergedBaseURL()+"/models/"+modelID, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.EffectiveBaseURL()+"/models/"+modelID, nil)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -51,7 +51,7 @@ func dashscopeModelLimits(ctx context.Context, p *vendorProvider, modelID string
 	if cfg.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	}
-	for name, value := range cfg.MergedHeaders() {
+	for name, value := range cfg.EffectiveHeaders() {
 		req.Header.Set(name, value)
 	}
 
