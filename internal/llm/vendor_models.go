@@ -19,6 +19,7 @@ import (
 // resolves a context window, so a slow answer must not stall a turn.
 const modelDetailTimeout = 8 * time.Second
 
+// TODO(sdk-go): DashScope's per-model limits belong to the endpoint's listing in sdk-go.
 // FetchModelLimits reports one model's token limits, for the endpoints that
 // answer per model rather than in their listing.
 //
