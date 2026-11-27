@@ -15,9 +15,9 @@ import (
 // A result the window can hold is passed through untouched: nil means "leave
 // it alone", and returning a copy instead would rewrite every tool call for
 // nothing.
-func TestToolResultLimiterBoundaryAndFailedPersistence(t *testing.T) {
+func TestResultLimiterBoundaryAndFailedPersistence(t *testing.T) {
 	mainSession := mainSessionFixture(t)
-	limiter := ToolResultLimiter{Store: mainSession.Store, SessionID: mainSession.Session.ID()}
+	limiter := ResultLimiter{Store: mainSession.Store, SessionID: mainSession.Session.ID()}
 	out, err := limiter.Filter(context.Background(), sdkagent.PostToolContext{Result: sdkagent.TextResult(strings.Repeat("x", 100_000))})
 	if err != nil || out != nil {
 		t.Fatal("threshold result was rewritten")
@@ -36,9 +36,9 @@ func TestToolResultLimiterBoundaryAndFailedPersistence(t *testing.T) {
 	}
 }
 
-func TestToolResultLimiterPersistsUnderNativeOwner(t *testing.T) {
+func TestResultLimiterPersistsUnderNativeOwner(t *testing.T) {
 	fixture := mainSessionFixture(t)
-	limiter := ToolResultLimiter{Store: fixture.Store, SessionID: fixture.Session.ID()}
+	limiter := ResultLimiter{Store: fixture.Store, SessionID: fixture.Session.ID()}
 	full := strings.Repeat("界", 40_000)
 	original := sdkagent.Result{Content: ai.TextContent(full), Details: "raw details"}
 	out, err := limiter.Filter(t.Context(), sdkagent.PostToolContext{Call: ai.ToolCall{ID: "native-call"}, Result: original})
@@ -60,7 +60,7 @@ func TestToolResultLimiterPersistsUnderNativeOwner(t *testing.T) {
 }
 
 func TestAResultThatFitsIsLeftAlone(t *testing.T) {
-	limiter := ToolResultLimiter{}
+	limiter := ResultLimiter{}
 	out, err := limiter.Filter(context.Background(), sdkagent.PostToolContext{
 		Result: sdkagent.Result{Content: ai.TextContent(strings.Repeat("x", 1000))},
 	})
@@ -73,7 +73,7 @@ func TestAResultThatFitsIsLeftAlone(t *testing.T) {
 // the guard used to edit the copy the interface draws, which stopped reaching
 // the model once the agent held its own conversation.
 func TestAResultTooLargeIsReplacedForTheModel(t *testing.T) {
-	limiter := ToolResultLimiter{}
+	limiter := ResultLimiter{}
 	full := strings.Repeat("y", 200_000)
 	out, err := limiter.Filter(context.Background(), sdkagent.PostToolContext{
 		Call:   ai.ToolCall{ID: "tc-1"},
